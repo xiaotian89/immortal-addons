@@ -1,0 +1,30 @@
+# ============================================================
+# 新源采集器 —— 单独部署（只起这一个容器）
+# 用法：cp .env.example .env → 改值 → docker compose -f docker-compose.harvester.yml up -d
+# 说明：只负责抓取入库，图片地址改写需另配 imgrewrite（或已有的 rewrite 机制）
+# ============================================================
+services:
+  harvester:
+    image: ${HARVESTER_IMAGE:-ghcr.io/xiaotian89/immortal-addons-harvester:1.0}
+    container_name: immortal-harvester
+    volumes:
+      - ${HARVESTER_LOG_DIR:-./logs}:/app/logs
+    environment:
+      INTERVAL: ${HARVESTER_INTERVAL:-1800}
+      RUN_ONCE: 0
+      SITE_BASE: ${SITE_BASE:-https://169bt.com}
+      FETCH_PROXY: ${UPSTREAM_PROXY:-}
+      # 图片改写前缀；留空 = 入库时保留原始图片地址
+      IMG_PROXY_BASE: ${IMG_PROXY_BASE:-}
+      BOARDS: ${BOARDS:-45:BT有码区,137:BT无码区,93:BT国产区,160:BT合集专区,192:4K UHD,138:BT欧美区,133:BT动漫区,211:有码原创,212:无码原创,210:国产原创}
+      PAGES: ${PAGES:-1}
+      MAX_POSTS: ${MAX_POSTS:-24}
+      DELAY: ${DELAY:-0.6}
+      DRY_RUN: ${DRY_RUN:-0}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-immortal}
+      DB_PASSWORD: ${DB_PASSWORD:?请先设置 DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-immortal_db}
+      LOG_DIR: /app/logs
+    restart: unless-stopped

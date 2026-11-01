@@ -1,0 +1,16 @@
+# 缓存与日志（运行期数据）
+imgcache/
+logs/
+*.log
+
+# 本地配置
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store

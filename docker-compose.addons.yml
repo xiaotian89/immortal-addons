@@ -1,0 +1,95 @@
+# ============================================================
+# immortal 外挂组件 —— 一条命令装三个
+#   docker compose -f docker-compose.addons.yml up -d
+# 不需要任何挂载脚本，SQL 已内置镜像
+# ============================================================
+services:
+
+  # ---------- ① 图片缓存代理 ----------
+  imgproxy:
+    image: ${IMGPROXY_IMAGE:-ghcr.io/xiaotian89/immortal-addons-imgproxy:5.5}
+    container_name: ${IMGPROXY_NAME:-immortal-imgproxy}
+    # host 网络：绕开 bridge 的 PMTU 黑洞（TLS 从 3~4 秒降到 0.5 秒）
+    # 用 host 模式时不能写 ports:，端口由 PORT 环境变量决定
+    network_mode: host
+    volumes:
+      - ${CACHE_DIR:-./imgcache}:/cache
+    environment:
+      CACHE_DIR: /cache
+      PORT: ${IMGPROXY_PORT:-8002}
+      FETCH_ENGINE: curl
+      CURL_BIN: /app/curl
+      CONNECT_TIMEOUT: 6
+      DIRECT_CONNECT_TIMEOUT: 3
+      READ_TIMEOUT: 45
+      TOTAL_BUDGET: 45
+      BLACKLIST_TTL: 300
+      BLACKLIST_TTL_404: 3600
+      CONCURRENCY: 48
+      CACHE_TTL: 15552000
+      MAX_CACHE_MB: ${MAX_CACHE_MB:-2048}
+      CLEAN_INTERVAL: 86400
+      # 上游代理：留空=直连
+      UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
+      DOMAIN_MEMO_TTL: 600
+      NEG_TTL: 600
+      DEAD_MIN_FAILS: 4
+      DEAD_TTL: 1800
+      DEAD_404_MIN_FAILS: 6
+      DEAD_404_TTL: 21600
+      OK_RATIO_MAX: 0.1
+      MIN_KBPS: 4
+      MIN_KBPS_GRACE: 6
+      HEADER_TIMEOUT: 8
+      READ_SLICE: 4
+      POOL_SIZE: 6
+      # 实测死掉的图床（以 . 开头 = 匹配整族子域）
+      DEAD_DOMAINS: ${DEAD_DOMAINS:-tu.ymawv.la,tu.w4kmzkm.com,upload.cc,s7tu.com,qpic.ws,tu6.3wk.cc,cdn1.snapgram.co,cdn2.snapgram.co,cdn3.snapgram.co,www.djsndtupian.com,33img.com,z4a.net,www.ultraimg.com,.imagehaha.com,.imageshimage.com}
+      # 按域名分代理端口：host:port,host2:port2
+      PROXY_MAP: ${PROXY_MAP:-}
+      # 直连必失败、直接走代理的域名
+      PROXY_FIRST_DOMAINS: ${PROXY_FIRST_DOMAINS:-pics.dmm.co.jp,awsimgsrc.dmm.co.jp,image.mgstage.com,tu.ldkms.la,jp.netcdn.space,c0.jdbstatic.com,img.m-team.cc,www.imgccc.com,dl.getchu.com,i.imgur.com,pic.duga.jp}
+    restart: unless-stopped
+
+  # ---------- ② 新源采集器 ----------
+  harvester:
+    image: ${HARVESTER_IMAGE:-ghcr.io/xiaotian89/immortal-addons-harvester:1.0}
+    container_name: ${HARVESTER_NAME:-immortal-harvester}
+    volumes:
+      - ${HARVESTER_LOG_DIR:-./logs}:/app/logs
+    environment:
+      INTERVAL: ${HARVESTER_INTERVAL:-1800}
+      RUN_ONCE: 0
+      SITE_BASE: ${SITE_BASE:-https://169bt.com}
+      FETCH_PROXY: ${UPSTREAM_PROXY:-}
+      # 图片改写前缀；留空 = 入库时保留原始图片地址
+      IMG_PROXY_BASE: ${IMG_PROXY_BASE:-}
+      BOARDS: ${BOARDS:-45:BT有码区,137:BT无码区,93:BT国产区,160:BT合集专区,192:4K UHD,138:BT欧美区,133:BT动漫区,211:有码原创,212:无码原创,210:国产原创}
+      PAGES: ${PAGES:-1}
+      MAX_POSTS: ${MAX_POSTS:-24}
+      DELAY: ${DELAY:-0.6}
+      DRY_RUN: ${DRY_RUN:-0}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-immortal}
+      DB_PASSWORD: ${DB_PASSWORD:?请先设置 DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-immortal_db}
+      LOG_DIR: /app/logs
+    restart: unless-stopped
+
+  # ---------- ③ 图片地址改写 ----------
+  # 把库里 https://host/path 改写成 http://<图片代理>:8002/host/path
+  imgrewrite:
+    image: ghcr.io/xiaotian89/immortal-addons-imgrewrite:1.0
+    container_name: ${IMGREWRITE_NAME:-immortal-imgrewrite}
+    depends_on:
+      - imgproxy
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:?请先设置 DB_PASSWORD}
+      IMG_PROXY_BASE: ${IMG_PROXY_BASE:?请先设置 IMG_PROXY_BASE，例如 http://192.168.1.10:8002}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-immortal}
+      DB_NAME: ${DB_NAME:-immortal_db}
+      REWRITE_INTERVAL: ${REWRITE_INTERVAL:-300}
+    restart: unless-stopped

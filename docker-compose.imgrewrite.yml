@@ -1,0 +1,25 @@
+# ============================================================
+# 图片 URL 改写 —— 单独部署（只起这一个容器）
+# 作用：每 N 秒把库里 https://host/path 改写成 http://<你的图片代理>:8002/host/path
+# 前提：已有图片代理在跑（可以先只上 imgproxy，再上这个）
+# 用法：docker compose -f docker-compose.imgrewrite.yml up -d
+# ============================================================
+services:
+  imgrewrite:
+    image: postgres:16-alpine
+    container_name: ${IMGREWRITE_NAME:-immortal-imgrewrite}
+    volumes:
+      # 模板只读挂载；容器启动时拷到 /tmp 再替换占位符（挂载文件改不了）
+      - ./imgproxy/rewrite.sql:/app/rewrite.tpl.sql:ro
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:?请先设置 DB_PASSWORD}
+      # 浏览器访问图片代理用的地址，必须填宿主机的局域网/公网 IP
+      IMG_PROXY_BASE: ${IMG_PROXY_BASE:?请先设置 IMG_PROXY_BASE，例如 http://192.168.1.10:8002}
+    command: >
+      sh -c 'cp /app/rewrite.tpl.sql /tmp/rewrite.sql;
+      sed -i "s#http://IMGPROXY_HOST:8002#$${IMG_PROXY_BASE}#g" /tmp/rewrite.sql;
+      while true; do
+      psql -h ${DB_HOST:-postgres} -p ${DB_PORT:-5432} -U ${DB_USER:-immortal} -d ${DB_NAME:-immortal_db} -v ON_ERROR_STOP=1 -f /tmp/rewrite.sql;
+      sleep ${REWRITE_INTERVAL:-300};
+      done'
+    restart: unless-stopped

@@ -1,0 +1,105 @@
+# ============================================================
+# immortal 外挂组件 —— 单文件版，不需要 .env
+#
+# 用法：
+#   1. 复制本文件到你的部署目录
+#   2. 改下面标了「← 改」的几处（一共 3 类）
+#   3. docker compose -f docker-compose.simple.yml up -d
+#
+# 三个容器：图片缓存代理 / 新源采集器 / 图片地址改写
+# 不需要任何挂载脚本，SQL 全部内置在镜像里
+# ============================================================
+services:
+
+  # ---------- ① 图片缓存代理 ----------
+  imgproxy:
+    image: ghcr.io/xiaotian89/immortal-addons-imgproxy:5.5
+    container_name: immortal-imgproxy
+    network_mode: host
+    volumes:
+      - ./imgcache:/cache
+    environment:
+      CACHE_DIR: /cache
+      PORT: 8002
+      FETCH_ENGINE: curl
+      CURL_BIN: /app/curl
+      CONNECT_TIMEOUT: 6
+      DIRECT_CONNECT_TIMEOUT: 3
+      READ_TIMEOUT: 45
+      TOTAL_BUDGET: 45
+      BLACKLIST_TTL: 300
+      BLACKLIST_TTL_404: 3600
+      CONCURRENCY: 48
+      CACHE_TTL: 15552000
+      MAX_CACHE_MB: 2048
+      CLEAN_INTERVAL: 86400
+      # ← 改③：有 HTTP 代理就填 http://代理IP:端口，没有就保持空字符串
+      UPSTREAM_PROXY: ""
+      DOMAIN_MEMO_TTL: 600
+      NEG_TTL: 600
+      DEAD_MIN_FAILS: 4
+      DEAD_TTL: 1800
+      DEAD_404_MIN_FAILS: 6
+      DEAD_404_TTL: 21600
+      OK_RATIO_MAX: 0.1
+      MIN_KBPS: 4
+      MIN_KBPS_GRACE: 6
+      HEADER_TIMEOUT: 8
+      READ_SLICE: 4
+      POOL_SIZE: 6
+      DEAD_DOMAINS: tu.ymawv.la,tu.w4kmzkm.com,upload.cc,s7tu.com,qpic.ws,tu6.3wk.cc,cdn1.snapgram.co,cdn2.snapgram.co,cdn3.snapgram.co,www.djsndtupian.com,33img.com,z4a.net,www.ultraimg.com,.imagehaha.com,.imageshimage.com
+      PROXY_MAP: ""
+      PROXY_FIRST_DOMAINS: pics.dmm.co.jp,awsimgsrc.dmm.co.jp,image.mgstage.com,tu.ldkms.la,jp.netcdn.space,c0.jdbstatic.com,img.m-team.cc,www.imgccc.com,dl.getchu.com,i.imgur.com,pic.duga.jp
+    restart: unless-stopped
+
+  # ---------- ② 新源采集器 ----------
+  harvester:
+    image: ghcr.io/xiaotian89/immortal-addons-harvester:1.0
+    container_name: immortal-harvester
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      INTERVAL: 1800
+      SITE_BASE: https://169bt.com
+      # ← 改③（同上）：抓取用的代理，没有就保持空
+      FETCH_PROXY: ""
+      # ← 改②：图片代理地址，必须是浏览器能访问到的地址
+      #   例：http://192.168.1.10:8002  或  http://nas.example.com:8002
+      #   不要写 127.0.0.1 / localhost / 容器名
+      IMG_PROXY_BASE: "http://你的NAS地址:8002"
+      BOARDS: 45:BT有码区,137:BT无码区,93:BT国产区,160:BT合集专区,192:4K UHD,138:BT欧美区,133:BT动漫区,211:有码原创,212:无码原创,210:国产原创
+      PAGES: 1
+      MAX_POSTS: 24
+      DELAY: 0.6
+      DRY_RUN: 0
+      # ← 改数据库地址：
+      #   和原版 immortal 在同一个 compose 网络里 → 保持 postgres
+      #   独立目录部署                              → 填宿主机 IP（如 192.168.1.10）
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: immortal
+      # ← 改①：原版 immortal 的 PostgreSQL 密码
+      DB_PASSWORD: "你的数据库密码"
+      DB_NAME: immortal_db
+      LOG_DIR: /app/logs
+    restart: unless-stopped
+
+  # ---------- ③ 图片地址改写 ----------
+  # 作用：定时把库里 https://图床/路径 改写成 http://图片代理/图床/路径
+  imgrewrite:
+    image: ghcr.io/xiaotian89/immortal-addons-imgrewrite:1.0
+    container_name: immortal-imgrewrite
+    depends_on:
+      - imgproxy
+    environment:
+      # ← 改①（同上）：数据库密码
+      PGPASSWORD: "你的数据库密码"
+      # ← 改②（同上）：图片代理地址
+      IMG_PROXY_BASE: "http://你的NAS地址:8002"
+      # ← 改数据库地址（同上）
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: immortal
+      DB_NAME: immortal_db
+      REWRITE_INTERVAL: 300
+    restart: unless-stopped
